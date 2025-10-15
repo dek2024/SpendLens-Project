@@ -302,3 +302,4 @@ tests/*_old.py
 
 # SpendLens logo (if you don't want to version it)
 # spendlens_logo.png
+.venv/
