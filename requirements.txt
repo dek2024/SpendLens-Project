@@ -1,0 +1,14 @@
+streamlit
+openai
+python-dotenv
+pandas
+pillow
+pytesseract
+openpyxl
+opencv-python-headless
+dateparser
+word2number
+
+# Testing dependencies
+pytest
+pytest-cov
