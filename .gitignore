@@ -296,10 +296,16 @@ tests/*_old.py
 # IMPLEMENTATION_STATUS.md
 
 # Generated documentation
-# TEST_RESULTS.md
-# TEST_COMPLETION_SUMMARY.md
-# TEST_QUICK_REFERENCE.md
+TEST_RESULTS.md
+TEST_COMPLETION_SUMMARY.md
+TEST_QUICK_REFERENCE.md
+QUICK_REFERENCE_CICD.md
+CI_CD_DOCUMENTATION.md
 
 # SpendLens logo (if you don't want to version it)
 # spendlens_logo.png
 .venv/
+
+IMPLEMENTATION_STATUS.md
+CI_CD_DOCUMENTATION.md
+QUICK_REFERENCE_CICD.md
