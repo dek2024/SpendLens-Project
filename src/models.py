@@ -3,9 +3,10 @@ Data models for SpendLens application.
 Follows Single Responsibility Principle - each class represents one domain concept.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
+import pandas as pd
 
 
 @dataclass
@@ -27,25 +28,28 @@ class Expense:
     def to_dict(self) -> dict:
         """Convert expense to dictionary for DataFrame compatibility."""
         return {
-            "Date/Time": self.date.strftime("%Y-%m-%d"),
+            "Date": self.date.strftime("%Y-%m-%d"),
             "Category": self.category,
-            "Amount ($)": self.amount,
+            "Amount": self.amount,
             "Notes": self.notes
         }
     
     @classmethod
     def from_dict(cls, data: dict) -> 'Expense':
-        """Create Expense from dictionary."""
-        date_str = data.get("Date/Time", "")
-        if isinstance(date_str, str):
-            date = datetime.strptime(date_str, "%Y-%m-%d")
+        """Create Expense from dictionary row."""
+        date_val = data.get("Date", "")
+        if isinstance(date_val, str):
+            try:
+                date = datetime.strptime(date_val, "%Y-%m-%d")
+            except ValueError:
+                date = pd.to_datetime(date_val, errors="coerce") or datetime.now()
         else:
             date = datetime.now()
             
         return cls(
             date=date,
             category=data.get("Category", "Uncategorized"),
-            amount=float(data.get("Amount ($)", 0.0)),
+            amount=float(data.get("Amount", 0.0)),
             notes=data.get("Notes", "")
         )
     

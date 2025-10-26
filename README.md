@@ -220,8 +220,6 @@ spendlens.ai/
 ├── .env                       # Environment variables (OPENAI_API_KEY)
 ├── requirements.txt           # Python dependencies
 ├── pyproject.toml             # Pytest configuration
-├── TEST_RESULTS.md            # Detailed test analysis
-├── TEST_COMPLETION_SUMMARY.md # Executive summary
 └── README.md                  # This file
 ```
 
