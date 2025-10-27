@@ -22,14 +22,14 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
-from openpyxl.chart import BarChart, PieChart, Reference
+from openpyxl.chart import BarChart, Reference
 
 from models import Expense, CategoryTotal, ParsedExpense
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -84,42 +84,40 @@ class ExpenseParser(IParser):
     """Enhanced parser with smarter numeric + word-based amount detection."""
 
     def parse_amount(self, text: str) -> float:
-        """Extract numeric or written dollar amounts from text."""
+        """Extract numeric or written dollar amounts from text, including commas and large numbers."""
         if not text:
+            logger.error("Failed to parse amount from empty input.")
             return 0.0
 
-        text_clean = text.lower().replace(",", "").replace("$", "").strip()
+        text_clean = text.lower().replace(",", "").strip()
         try:
-            # Case 1: Look for '$X' or 'X dollars' / 'X bucks'
-            dollar_match = re.search(r"(\d+(?:\.\d{1,2})?)\s*(?:dollar|bucks?)", text_clean)
-            if dollar_match:
-                return float(dollar_match.group(1))
+            # Handle direct $amount early — supports commas and decimals
+            dollar_sign_match = re.search(r"\$\s*([\d,]+(?:\.\d{1,2})?)", text)
+            if dollar_sign_match:
+                value = float(dollar_sign_match.group(1).replace(",", ""))
+                logger.info("Parsed numeric amount successfully.")
+                return value
 
-            # Case 2: Written amounts before 'dollars' (e.g., "six dollars")
+            # Numeric fallback (handles large numbers and commas)
+            match = re.search(r"\b(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)\b", text)
+            if match:
+                value = float(match.group(1).replace(",", ""))
+                logger.info("Parsed numeric amount successfully.")
+                return value
+
+            # Written numbers (e.g., "twenty five dollars")
             word_match = re.search(r"([\w\s-]+)\s*(?:dollar|bucks?)", text_clean)
             if word_match:
                 words = word_match.group(1).replace("-", " ").strip()
-                try:
-                    return float(w2n.word_to_num(words))
-                except Exception:
-                    pass
+                value = float(w2n.word_to_num(words))
+                logger.info("Parsed numeric amount successfully.")
+                return value
 
-            # Case 3: Multiple numbers (pick the *last one*, most likely price)
-            nums = re.findall(r"\b\d+(?:\.\d{1,2})?\b", text_clean)
-            if nums:
-                return float(nums[-1])
-
-            # Case 4: Fallback for written number only
-            try:
-                return float(w2n.word_to_num(text_clean))
-            except Exception:
-                pass
+            return 0.0
 
         except Exception as e:
             logger.error(f"Failed to parse amount from '{text}': {e}")
-
-        logger.warning(f"No valid amount found in text: '{text}'")
-        return 0.0
+            return 0.0
 
     def parse_date(self, text: str) -> datetime:
         if not text:
@@ -162,11 +160,19 @@ class ExcelStorage(IStorage):
 
     def save_expenses(self, expenses: List[Expense]) -> None:
         try:
-            df = pd.DataFrame([e.to_dict() for e in expenses])
+            df = pd.DataFrame([
+                {
+                    "Date/Time": e.date.strftime("%Y-%m-%d"),
+                    "Category": e.category,
+                    "Amount ($)": e.amount,
+                    "Notes": e.notes
+                }
+                for e in expenses
+            ])
             if df.empty:
-                # Ensure headers exist even when empty
-                df = pd.DataFrame(columns=["Date", "Category", "Amount", "Notes"])
+                df = pd.DataFrame(columns=["Date/Time", "Category", "Amount ($)", "Notes"])
             df.to_excel(self.file_path, index=False)
+            logger.info("Saved expenses to Excel file.")
         except Exception as e:
             logger.error(f"Failed to save expenses: {e}")
             raise
@@ -179,7 +185,7 @@ class ExcelStorage(IStorage):
     def clear_all(self) -> None:
         """Clear all expenses but preserve headers."""
         try:
-            df = pd.DataFrame(columns=["Date", "Category", "Amount", "Notes"])
+            df = pd.DataFrame(columns=["Date/Time", "Category", "Amount ($)", "Notes"])
             df.to_excel(self.file_path, index=False)
             logger.warning("All expense data cleared. File reset with headers.")
         except Exception as e:
@@ -205,6 +211,10 @@ class ExpenseAnalyzer:
 
     def get_total_spending(self, expenses: List[Expense]) -> float:
         return sum(exp.amount for exp in expenses)
+
+    def filter_by_date_range(self, expenses: List[Expense], start: datetime, end: datetime) -> List[Expense]:
+        """Filter expenses between start and end dates inclusive."""
+        return [exp for exp in expenses if start <= exp.date <= end]
 
 
 # ==================== EXCEL FORMATTER ====================
@@ -232,16 +242,18 @@ class ExcelFormatter:
             # Header styling
             for cell in ws[1]:
                 cell.font = Font(bold=True, color="FFFFFF")
-                cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+                cell.fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
                 cell.alignment = Alignment(horizontal="center")
 
-            # Alternate row colors
+            # Alternating row colors + currency
             for row in range(2, ws.max_row + 1):
-                fill_color = "D9E1F2" if row % 2 == 0 else "FFFFFF"
+                fill_color = "F2F2F2" if row % 2 == 0 else "FFFFFF"
                 for cell in ws[row]:
                     cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+                    if cell.column == 3:
+                        cell.number_format = '"$"#,##0.00'
 
-            # Borders + alignment
+            # Borders
             thin = Side(border_style="thin", color="999999")
             for row in ws.iter_rows():
                 for cell in row:
@@ -253,38 +265,25 @@ class ExcelFormatter:
                 max_len = max(len(str(c.value)) if c.value else 0 for c in col)
                 ws.column_dimensions[get_column_letter(col[0].column)].width = max_len + 3
 
-            # Add table with filters
+            # Add table
             table_ref = f"A1:{get_column_letter(ws.max_column)}{ws.max_row}"
             table = Table(displayName="ExpenseTable", ref=table_ref)
             style = TableStyleInfo(name="TableStyleMedium9", showRowStripes=True)
             table.tableStyleInfo = style
             ws.add_table(table)
 
-            # Charts Sheet
-            ws_chart = wb.create_sheet("Charts")
-            category_summary = df.groupby("Category")["Amount"].sum().reset_index()
+            # Add bar chart
+            chart = BarChart()
+            chart.title = "Spending by Category"
+            chart.y_axis.title = "Amount ($)"
+            chart.x_axis.title = "Category"
 
-            ws_chart.append(["Category", "Total"])
-            for _, row in category_summary.iterrows():
-                ws_chart.append(row.tolist())
-
-            # Bar Chart
-            bar_chart = BarChart()
-            bar_chart.title = "Spending by Category"
-            bar_chart.y_axis.title = "Amount ($)"
-            bar_chart.x_axis.title = "Category"
-            cats = Reference(ws_chart, min_col=1, min_row=2, max_row=len(category_summary) + 1)
-            vals = Reference(ws_chart, min_col=2, min_row=1, max_row=len(category_summary) + 1)
-            bar_chart.add_data(vals, titles_from_data=True)
-            bar_chart.set_categories(cats)
-            ws_chart.add_chart(bar_chart, "E2")
-
-            # Pie Chart
-            pie_chart = PieChart()
-            pie_chart.title = "Expense Distribution"
-            pie_chart.add_data(vals, titles_from_data=True)
-            pie_chart.set_categories(cats)
-            ws_chart.add_chart(pie_chart, "E20")
+            if "Category" in df.columns and "Amount ($)" in df.columns:
+                cats = Reference(ws, min_col=2, min_row=2, max_row=ws.max_row)
+                vals = Reference(ws, min_col=3, min_row=1, max_row=ws.max_row)
+                chart.add_data(vals, titles_from_data=True)
+                chart.set_categories(cats)
+                ws.add_chart(chart, "E2")
 
             wb.save(file_path)
             logger.info(f"Excel export formatted successfully: {file_path}")
@@ -338,6 +337,7 @@ class ExpenseController:
         self.analyzer = analyzer
         self.formatter = formatter
         self.ai_service = ai_service
+        logger.info("ExpenseController initialized.")
 
     def parse_and_create_expense(self, text, category, manual_amount=None, manual_date=None):
         parsed = self.parser.parse_expense(text)
@@ -352,6 +352,10 @@ class ExpenseController:
         expense = self.parse_and_create_expense(text, category, manual_amount, manual_date)
         self.storage.add_expense(expense)
         return expense
+
+    def get_all_expenses(self):
+        """Return all expenses currently stored."""
+        return self.storage.load_expenses()
 
     def get_dashboard_data(self):
         expenses = self.storage.load_expenses()
@@ -368,7 +372,7 @@ class ExpenseController:
         expenses = self.storage.load_expenses()
         if not expenses:
             logger.warning("No expenses to export.")
-            df = pd.DataFrame(columns=["Date", "Category", "Amount", "Notes"])
+            df = pd.DataFrame(columns=["Date/Time", "Category", "Amount ($)", "Notes"])
             df.to_excel(file_path, index=False)
             return
         total = self.analyzer.get_total_spending(expenses)
