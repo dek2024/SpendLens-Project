@@ -1,9 +1,11 @@
 # 🧾 SpendLens - AI-Powered Expense Tracker
 
-![Tests](https://github.com/YOUR-USERNAME/spendlens.ai/actions/workflows/tests.yml/badge.svg)
-![Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen)
+
+![Tests](https://github.com/dek2024/SpendLens-Project/actions/workflows/tests.yml/badge.svg)
+![Coverage](https://img.shields.io/badge/coverage-88.5%25-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
+
 
 **SpendLens** is an intelligent expense tracking application that uses voice recognition and AI analysis to help you understand and manage your spending habits. Built with clean SOLID architecture principles and comprehensive test coverage.
 
@@ -16,7 +18,7 @@
 - 📊 **Visual Dashboard** - Real-time spending insights and category breakdowns
 - 📥 **Excel Export** - Professional formatted reports with charts
 - 🏗️ **SOLID Architecture** - Clean, maintainable, and extensible codebase
-- 🧪 **92% Test Coverage** - Production-ready with comprehensive testing
+- 🧪 **88.5% Test Coverage** - Production-ready with comprehensive testing
 
 ---
 
@@ -106,7 +108,8 @@ class ExpenseController:
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR-USERNAME/spendlens.ai.git
+git clone https://github.com/dek2024/SpendLens-Project.git
+
 cd spendlens.ai
 
 # Install dependencies
