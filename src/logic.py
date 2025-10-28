@@ -80,38 +80,118 @@ class IAIService(ABC):
 
 # ==================== PARSER ====================
 
+_NUMBER_WORDS = {
+    "zero","one","two","three","four","five","six","seven","eight","nine","ten",
+    "eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen",
+    "eighteen","nineteen","twenty","thirty","forty","fifty","sixty","seventy",
+    "eighty","ninety","hundred","thousand","million","billion","and"
+}
+
+def _trailing_number_words(segment: str) -> str:
+    """
+    From a text segment, extract the trailing sequence of tokens that form
+    a number phrase (e.g., "i spent six" -> "six", "twenty-one" -> "twenty one").
+    """
+    if not segment:
+        return ""
+    toks = segment.strip().lower().split()
+    keep = []
+    # consume from end while token is numeric word or digits
+    for tok in reversed(toks):
+        # break hyphenated like "seventy-eight" into number words
+        parts = tok.replace("-", " ").split()
+        ok = True
+        for p in parts:
+            if p.isdigit():
+                continue
+            if p not in _NUMBER_WORDS:
+                ok = False
+                break
+        if ok:
+            # prepend original token's parts (space-joined) to front of keep (we're going reversed)
+            keep.insert(0, " ".join(parts))
+        else:
+            break
+    return " ".join(keep).strip()
+
 class ExpenseParser(IParser):
-    """Enhanced parser with smarter numeric + word-based amount detection."""
+    """Enhanced parser: supports numeric amounts and written 'dollars and cents' reliably."""
 
     def parse_amount(self, text: str) -> float:
-        """Extract numeric or written dollar amounts from text, including commas and large numbers."""
+        """Extract numeric or written dollar amounts (with cents) from text."""
         if not text:
             logger.error("Failed to parse amount from empty input.")
             return 0.0
 
-        text_clean = text.lower().replace(",", "").strip()
+        text_clean = text.lower().strip()
+
         try:
-            # Handle direct $amount early — supports commas and decimals
+            # 1) Direct numeric formats like $12.75, 12.5, 1,200.99
             dollar_sign_match = re.search(r"\$\s*([\d,]+(?:\.\d{1,2})?)", text)
             if dollar_sign_match:
                 value = float(dollar_sign_match.group(1).replace(",", ""))
-                logger.info("Parsed numeric amount successfully.")
-                return value
+                return round(value, 2)
 
-            # Numeric fallback (handles large numbers and commas)
-            match = re.search(r"\b(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)\b", text)
-            if match:
-                value = float(match.group(1).replace(",", ""))
-                logger.info("Parsed numeric amount successfully.")
-                return value
+            number_match = re.search(r"\b(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)\b", text)
+            if number_match:
+                value = float(number_match.group(1).replace(",", ""))
+                return round(value, 2)
 
-            # Written numbers (e.g., "twenty five dollars")
-            word_match = re.search(r"([\w\s-]+)\s*(?:dollar|bucks?)", text_clean)
-            if word_match:
-                words = word_match.group(1).replace("-", " ").strip()
-                value = float(w2n.word_to_num(words))
-                logger.info("Parsed numeric amount successfully.")
-                return value
+            # 2) Written "X dollars [and Y cents]" (plural/singular, with "bucks" allowed)
+            #    Capture the phrase immediately before dollars/bucks, then peel off trailing number words.
+            m = re.search(r"(.+?)\s+(?:dollars?|bucks?)\b", text_clean)
+            if m:
+                dollars_phrase_raw = _trailing_number_words(m.group(1))
+                if dollars_phrase_raw:
+                    dollars_val = float(w2n.word_to_num(dollars_phrase_raw))
+                else:
+                    dollars_val = 0.0
+
+                # optional cents phrase: words ("seventy eight") or digits ("78")
+                cents_val = 0.0
+                m_cents_words = re.search(r"\band\s+([a-z\s-]+)\s+cents?\b", text_clean)
+                m_cents_digits = re.search(r"\band\s+(\d+)\s+cents?\b", text_clean)
+
+                if m_cents_words:
+                    cents_phrase = _trailing_number_words(m_cents_words.group(1))
+                    if cents_phrase:
+                        cents_val = float(w2n.word_to_num(cents_phrase))
+                elif m_cents_digits:
+                    cents_val = float(m_cents_digits.group(1))
+
+                value = dollars_val + (cents_val / 100.0)
+                if value > 0:
+                    return round(value, 2)
+
+            # 3) Standalone "NN cents" (no dollars mentioned)
+            m_only_cents_words = re.search(r"\b([a-z\s-]+)\s+cents?\b", text_clean)
+            m_only_cents_digits = re.search(r"\b(\d+)\s+cents?\b", text_clean)
+            if m_only_cents_words and not re.search(r"dollars?|bucks?", text_clean):
+                cents_phrase = _trailing_number_words(m_only_cents_words.group(1))
+                if cents_phrase:
+                    cents_val = float(w2n.word_to_num(cents_phrase))
+                    return round(cents_val / 100.0, 2)
+            if m_only_cents_digits and not re.search(r"dollars?|bucks?", text_clean):
+                cents_val = float(m_only_cents_digits.group(1))
+                return round(cents_val / 100.0, 2)
+
+            # 4) Spoken decimals like "six point five"
+            decimal_words = re.search(r"([\w\s-]+)\s*point\s*([\w\s-]+)", text_clean)
+            if decimal_words:
+                whole_phrase = _trailing_number_words(decimal_words.group(1))
+                frac_phrase = _trailing_number_words(decimal_words.group(2))
+                if whole_phrase:
+                    whole = w2n.word_to_num(whole_phrase)
+                    # convert "seven five" -> "75"
+                    if frac_phrase:
+                        frac_digits = "".join(
+                            " ".join(tok.replace("-", " ").split()) for tok in [frac_phrase]
+                        ).split()
+                        frac_as_digits = "".join(
+                            str(w2n.word_to_num(t)) if not t.isdigit() else t for t in frac_digits
+                        )
+                        decimal = float(f"{whole}.{frac_as_digits}")
+                        return round(decimal, 2)
 
             return 0.0
 
@@ -164,7 +244,7 @@ class ExcelStorage(IStorage):
                 {
                     "Date/Time": e.date.strftime("%Y-%m-%d"),
                     "Category": e.category,
-                    "Amount ($)": e.amount,
+                    "Amount ($)": round(e.amount, 2),  # ensure cents preserved
                     "Notes": e.notes
                 }
                 for e in expenses
@@ -376,7 +456,6 @@ class ExpenseController:
             df.to_excel(file_path, index=False)
             return
         total = self.analyzer.get_total_spending(expenses)
-        expenses.append(Expense(datetime.now(), "TOTAL", total, ""))
         ExcelStorage(file_path).save_expenses(expenses)
         self.formatter.format_workbook(file_path)
 
